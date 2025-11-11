@@ -231,6 +231,20 @@ services:
     networks:
       - avalon_net
 
+  nginx:
+    image: nginx:alpine
+    container_name: avalon_nginx
+    volumes:
+      - /opt/avalon/nginx/conf.d:/etc/nginx/conf.d
+      - /opt/avalon/nginx/certs:/etc/letsencrypt
+      - /opt/avalon/nginx/www:/var/www/certbot
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - avalon_net
+
+
 # =====================
 # Volumes
 # =====================
@@ -250,3 +264,4 @@ volumes:
 networks:
   avalon_net:
     driver: bridge
+
