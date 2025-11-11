@@ -1,0 +1,19 @@
+# Node modules
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Docker volumes (если есть локальные данные)
+dev-test-preprod/minio_data/
+dev-test-preprod/pgdata/
+dev-test-preprod/opensearch_data/
+dev-test-preprod/redis_data/
+dev-test-preprod/prometheus_data/
+dev-test-preprod/grafana_data/
+
+# Env files with secrets
+dev-test-preprod/.env

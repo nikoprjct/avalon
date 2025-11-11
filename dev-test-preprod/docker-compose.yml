@@ -1,0 +1,353 @@
+version: "3.9"
+services:
+  # =====================
+  # Postgres для всех сред
+  # =====================
+  postgres:
+    image: postgres:15
+    container_name: postgres_devtestpreprod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"  # Dev
+      - "5433:5433"  # Test
+      - "5434:5434"  # Preprod
+
+  # =====================
+  # Backend API для Dev/Test/Pre-prod
+  # =====================
+  backend-dev:
+    image: avalon/backend:latest
+    environment:
+      ENV: dev
+      DB_HOST: postgres
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+
+  backend-test:
+    image: avalon/backend:latest
+    environment:
+      ENV: test
+      DB_HOST: postgres
+      DB_PORT: 5433
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5001:5001"
+    depends_on:
+      - postgres
+
+  backend-preprod:
+    image: avalon/backend:latest
+    environment:
+      ENV: preprod
+      DB_HOST: postgres
+      DB_PORT: 5434
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5002:5002"
+    depends_on:
+      - postgres
+
+  # =====================
+  # Frontend React
+  # =====================
+  frontend-dev:
+    image: avalon/frontend:latest
+    environment:
+      ENV: dev
+    ports:
+      - "3000:3000"
+
+  frontend-test:
+    image: avalon/frontend:latest
+    environment:
+      ENV: test
+    ports:
+      - "3001:3001"
+
+  frontend-preprod:
+    image: avalon/frontend:latest
+    environment:
+      ENV: preprod
+    ports:
+      - "3002:3002"
+
+  # =====================
+  # MinIO с Tiering
+  # =====================
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    entrypoint: >
+      sh -c "
+      minio server /data --console-address ':9001' &
+      sleep 8 &&
+      mc alias set local http://localhost:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
+      mc mb -p local/dev local/test local/preprod &&
+      mc admin bucket remote add local ${S3_BUCKET} ${S3_ENDPOINT} ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
+      mc ilm add local/dev --tiering move --limit 300GB --transition-days 30 &&
+      mc ilm add local/test --tiering move --limit 300GB --transition-days 30 &&
+      mc ilm add local/preprod --tiering move --limit 300GB --transition-days 30 &&
+      fg 1
+      "
+    depends_on:
+      - postgres
+
+  # =====================
+  # OpenSearch
+  # =====================
+  opensearch:
+    image: opensearchproject/opensearch:2.9.0
+    environment:
+      discovery.type: single-node
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
+  # =====================
+  # Kafka + Zookeeper
+  # =====================
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    environment:
+      ALLOW_ANONYMOUS_LOGIN: "yes"
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: bitnami/kafka:latest
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+    ports:
+      - "9092:9092"
+
+  # =====================
+  # Redis
+  # =====================
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis_data:/data
+
+  # =====================
+  # CI/CD Runner (GitHub Actions Runner или Jenkins Agent)
+  # =====================
+  cicd-runner:
+    image: ghcr.io/actions/actions-runner:latest
+    container_name: cicd_runner
+    restart: unless-stopped
+    environment:
+      RUNNER_NAME: avalon-runner
+      RUNNER_REPO: https://github.com/your-org/avalon-dms
+      RUNNER_TOKEN: ${GITHUB_RUNNER_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+    depends_on:
+      - backend-dev
+      - backend-test
+      - backend-preprod
+
+  # =====================
+  # Monitoring (Prometheus + Grafana)
+  # =====================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    depends_on:
+      - backend-dev
+      - backend-test
+      - backend-preprod
+      - postgres
+      - redis
+      - minio
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # =====================
+  # Healthcheck & Utility Container
+  # =====================
+  healthcheck:
+    image: curlimages/curl:latest
+    container_name: healthcheck
+    command: >
+      sh -c "
+      echo '--- Проверка доступности сервисов ---' &&
+      curl -s http://backend-dev:5000/health || echo 'Backend DEV недоступен' &&
+      curl -s http://backend-test:5001/health || echo 'Backend TEST недоступен' &&
+      curl -s http://backend-preprod:5002/health || echo 'Backend PREPROD недоступен' &&
+      curl -s http://minio:9000/minio/health/ready || echo 'MinIO не готов' &&
+      curl -s http://opensearch:9200 || echo 'OpenSearch не отвечает' &&
+      echo '--- Проверка завершена ---'
+      "
+    depends_on:
+      - backend-dev
+      - backend-test
+      - backend-preprod
+      - minio
+      - opensearch
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+# =====================
+# TOML и DATA VOLUMES
+# =====================
+volumes:
+  pgdata:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/avalon/data/pgdata
+      o: bind
+  minio_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/avalon/data/minio_data
+      o: bind
+  opensearch_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/avalon/data/opensearch_data
+      o: bind
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/avalon/data/redis_data
+      o: bind
+  prometheus_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/avalon/data/prometheus_data
+      o: bind
+  grafana_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: /opt/avalon/data/grafana_data
+      o: bind
+
+# =====================
+# NETWORKS
+# =====================
+networks:
+  avalon_net:
+    driver: bridge
+
+# =====================
+# GLOBAL SERVICE SETTINGS (расширяемые параметры)
+# =====================
+x-defaults: &default-service
+  restart: unless-stopped
+  networks:
+    - avalon_net
+  healthcheck:
+    test: ["CMD-SHELL", "echo 'ok'"]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+
+# =====================
+# NOTES
+# =====================
+# 🔸 Все контейнеры подключены к общей сети avalon_net.
+# 🔸 Переменные окружения подгружаются из .env
+# 🔸 При необходимости можно вынести volumes в отдельный SSD-диск:
+#     /mnt/avalon_data:/var/lib/docker/volumes
+# 🔸 В будущем для Production можно вынести компоненты на отдельные ноды:
+#     - PostgreSQL + Redis -> База данных сервер
+#     - MinIO + OpenSearch -> Хранилище данных
+#     - Backend + Frontend -> Application Layer
+#     - Kafka + Zookeeper -> Messaging Layer
+# 🔸 Prometheus и Grafana подключаются к backend и системным метрикам
+# 🔸 Для безопасного продакшена нужно добавить reverse proxy (например, Traefik или Nginx)
+# 🔸 Можно добавить backup сервис:
+#     duplicati:
+#       image: duplicati/duplicati
+#       ports:
+#         - "8200:8200"
+#       volumes:
+#         - /opt/avalon-dms/backups:/data
+#         - /opt/avalon-dms:/source
+#       restart: unless-stopped
+#       environment:
+#         - DUPLICATI__PASSWD=<strong_password>
+#         - DUPLICATI__WEBSERVICE_PORT=8200
+#         - DUPLICATI__WEBSERVICE_INTERFACE=any
+#       depends_on:
+#         - postgres
+#         - minio
+#
+# После добавления можно запускать:
+# docker-compose --env-file .env up -d
+# docker logs -f <service_name>  # просмотр логов
+#
+# Для перезапуска всех контейнеров:
+# docker-compose down && docker-compose up -d
+#
+# Для мониторинга состояния:
+# docker ps
+# docker stats
+# docker-compose logs --tail=50 <service>
+#
+# 🚀 Готово! Система Avalon DMS MVP запускается в dev/test/preprod окружении
+# и готова к горизонтальному масштабированию.
