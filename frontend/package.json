@@ -4,12 +4,23 @@
   "private": true,
   "type": "module",
   "scripts": {
+    // =====================
+    // Development
+    // =====================
     "dev:dev": "vite --mode dev --port 3000",
     "dev:test": "vite --mode test --port 3001",
     "dev:preprod": "vite --mode preprod --port 3002",
-    "build:dev": "vite build --mode dev",
-    "build:test": "vite build --mode test",
-    "build:preprod": "vite build --mode preprod",
+
+    // =====================
+    // Build for production / preprod / test
+    // =====================
+    "build:dev": "vite build --mode dev",        // сборка для DEV
+    "build:test": "vite build --mode test",      // сборка для TEST
+    "build:preprod": "vite build --mode preprod",// сборка для PREPROD
+
+    // =====================
+    // Preview / serve locally
+    // =====================
     "preview:dev": "vite preview --port 5000",
     "preview:test": "vite preview --port 5001",
     "preview:preprod": "vite preview --port 5002"

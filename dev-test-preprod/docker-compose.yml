@@ -1,21 +1,43 @@
-version: "3.9"
-
 services:
   # =====================
   # Postgres для всех сред
   # =====================
-  postgres:
+  postgres-dev:
     image: postgres:15
-    container_name: postgres_devtestpreprod
+    container_name: postgres_dev
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_dev:/var/lib/postgresql/data
     ports:
       - "${DB_PORT_DEV}:5432"
-      - "${DB_PORT_TEST}:5433"
-      - "${DB_PORT_PREPROD}:5434"
+    networks:
+      - avalon_net
+
+  postgres-test:
+    image: postgres:15
+    container_name: postgres_test
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata_test:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT_TEST}:5432"
+    networks:
+      - avalon_net
+
+  postgres-preprod:
+    image: postgres:15
+    container_name: postgres_preprod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata_preprod:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT_PREPROD}:5432"
     networks:
       - avalon_net
 
@@ -28,14 +50,14 @@ services:
     container_name: backend_dev
     environment:
       ENV: dev
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT_DEV}
+      DB_HOST: postgres-dev
+      DB_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "${BACKEND_DEV_PORT}:5000"
     depends_on:
-      - postgres
+      - postgres-dev
     networks:
       - avalon_net
 
@@ -45,14 +67,14 @@ services:
     container_name: backend_test
     environment:
       ENV: test
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT_TEST}
+      DB_HOST: postgres-test
+      DB_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "${BACKEND_TEST_PORT}:5000"
     depends_on:
-      - postgres
+      - postgres-test
     networks:
       - avalon_net
 
@@ -62,23 +84,25 @@ services:
     container_name: backend_preprod
     environment:
       ENV: preprod
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT_PREPROD}
+      DB_HOST: postgres-preprod
+      DB_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "${BACKEND_PREPROD_PORT}:5000"
     depends_on:
-      - postgres
+      - postgres-preprod
     networks:
       - avalon_net
 
   # =====================
-  # Frontend React (Vite)
+  # Frontend React (Dev / Test / Preprod)
   # =====================
   frontend-dev:
     build:
       context: ../frontend
+      args:
+        ENV: dev
     container_name: frontend_dev
     environment:
       ENV: dev
@@ -93,6 +117,8 @@ services:
   frontend-test:
     build:
       context: ../frontend
+      args:
+        ENV: test
     container_name: frontend_test
     environment:
       ENV: test
@@ -107,6 +133,58 @@ services:
   frontend-preprod:
     build:
       context: ../frontend
+      args:
+        ENV: preprod
+    container_name: frontend_preprod
+    environment:
+      ENV: preprod
+      VITE_API_URL: ${BACKEND_PREPROD_URL}
+    ports:
+      - "${FRONTEND_PREPROD_PORT}:5173"
+    depends_on:
+      - backend-preprod
+    networks:
+      - avalon_net
+  # =====================
+  # Frontend React (Dev / Test / Preprod)
+  # =====================
+  frontend-dev:
+    build:
+      context: ../frontend
+      args:
+        ENV: dev
+    container_name: frontend_dev
+    environment:
+      ENV: dev
+      VITE_API_URL: ${BACKEND_DEV_URL}
+    ports:
+      - "${FRONTEND_DEV_PORT}:5173"
+    depends_on:
+      - backend-dev
+    networks:
+      - avalon_net
+
+  frontend-test:
+    build:
+      context: ../frontend
+      args:
+        ENV: test
+    container_name: frontend_test
+    environment:
+      ENV: test
+      VITE_API_URL: ${BACKEND_TEST_URL}
+    ports:
+      - "${FRONTEND_TEST_PORT}:5173"
+    depends_on:
+      - backend-test
+    networks:
+      - avalon_net
+
+  frontend-preprod:
+    build:
+      context: ../frontend
+      args:
+        ENV: preprod
     container_name: frontend_preprod
     environment:
       ENV: preprod
@@ -119,11 +197,10 @@ services:
       - avalon_net
 
   # =====================
-  # MinIO локальное и внешнее S3
+  # MinIO
   # =====================
   minio:
     image: minio/minio:latest
-    container_name: minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -137,30 +214,45 @@ services:
       - "9001:9001"
     volumes:
       - minio_data:/data
+    depends_on:
+      - postgres-dev
     networks:
       - avalon_net
 
   # =====================
-  # Kafka + Zookeeper (Confluent Official)
+  # OpenSearch
+  # =====================
+  opensearch:
+    image: opensearchproject/opensearch:2.9.0
+    environment:
+      discovery.type: single-node
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - avalon_net
+
+  # =====================
+  # Kafka + Zookeeper (Bitnami)
   # =====================
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.3.0
+    image: bitnami/zookeeper:3.9.1
     container_name: zookeeper
-    restart: unless-stopped
     environment:
+      ALLOW_ANONYMOUS_LOGIN: "yes"
       ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
     volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_data:/bitnami
     networks:
       - avalon_net
 
   kafka:
-    image: confluentinc/cp-kafka:7.3.0
+    image: bitnami/kafka:3.8.1
     container_name: kafka
-    restart: unless-stopped
     depends_on:
       - zookeeper
     ports:
@@ -168,21 +260,20 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_LISTENERS: PLAINTEXT://:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      ALLOW_PLAINTEXT_LISTENER: "yes"
     volumes:
-      - kafka_data:/var/lib/kafka/data
+      - kafka_data:/bitnami
     networks:
       - avalon_net
-      
+
   # =====================
   # Redis
   # =====================
   redis:
     image: redis:7
     container_name: redis
-    restart: always
     ports:
       - "6379:6379"
     volumes:
@@ -190,13 +281,22 @@ services:
     networks:
       - avalon_net
 
+# =====================
+# Volumes
+# =====================
 volumes:
-  pgdata:
+  pgdata_dev:
+  pgdata_test:
+  pgdata_preprod:
   minio_data:
+  opensearch_data:
   zookeeper_data:
   kafka_data:
   redis_data:
 
+# =====================
+# Networks
+# =====================
 networks:
   avalon_net:
     driver: bridge
