@@ -145,56 +145,6 @@ services:
       - backend-preprod
     networks:
       - avalon_net
-  # =====================
-  # Frontend React (Dev / Test / Preprod)
-  # =====================
-  frontend-dev:
-    build:
-      context: ../frontend
-      args:
-        ENV: dev
-    container_name: frontend_dev
-    environment:
-      ENV: dev
-      VITE_API_URL: ${BACKEND_DEV_URL}
-    ports:
-      - "${FRONTEND_DEV_PORT}:5173"
-    depends_on:
-      - backend-dev
-    networks:
-      - avalon_net
-
-  frontend-test:
-    build:
-      context: ../frontend
-      args:
-        ENV: test
-    container_name: frontend_test
-    environment:
-      ENV: test
-      VITE_API_URL: ${BACKEND_TEST_URL}
-    ports:
-      - "${FRONTEND_TEST_PORT}:5173"
-    depends_on:
-      - backend-test
-    networks:
-      - avalon_net
-
-  frontend-preprod:
-    build:
-      context: ../frontend
-      args:
-        ENV: preprod
-    container_name: frontend_preprod
-    environment:
-      ENV: preprod
-      VITE_API_URL: ${BACKEND_PREPROD_URL}
-    ports:
-      - "${FRONTEND_PREPROD_PORT}:5173"
-    depends_on:
-      - backend-preprod
-    networks:
-      - avalon_net
 
   # =====================
   # MinIO
@@ -235,10 +185,10 @@ services:
       - avalon_net
 
   # =====================
-  # Kafka + Zookeeper (Bitnami)
+  # Kafka + Zookeeper
   # =====================
   zookeeper:
-    image: bitnami/zookeeper:3.9.1
+    image: zookeeper:3.9.4
     container_name: zookeeper
     environment:
       ALLOW_ANONYMOUS_LOGIN: "yes"
@@ -251,7 +201,7 @@ services:
       - avalon_net
 
   kafka:
-    image: bitnami/kafka:3.8.1
+    image: apache/kafka:4.1.0
     container_name: kafka
     depends_on:
       - zookeeper
