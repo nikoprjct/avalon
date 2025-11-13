@@ -1,7 +1,12 @@
-# Минимальный образ для проверки
-FROM node:18
+FROM node:18-alpine
 
 WORKDIR /app
 
-# Пока пусто, можно просто держать контейнер запущенным
-CMD ["tail", "-f", "/dev/null"]
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+
+RUN npm run build
+EXPOSE 5000
+CMD ["node", "dist/index.js"]
