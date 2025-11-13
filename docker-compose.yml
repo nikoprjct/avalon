@@ -1,0 +1,102 @@
+services:
+  # Postgres
+  postgres:
+    image: postgres:15
+    container_name: postgres_${ENV_PREFIX}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT}:5432"
+    networks:
+      - avalon_net
+
+  # Backend
+  backend:
+    build:
+      context: ./backend
+    container_name: backend_${ENV_PREFIX}
+    environment:
+      ENV: ${ENV_PREFIX}
+      DB_HOST: postgres_${ENV_PREFIX}
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${BACKEND_PORT}:5000"
+    depends_on:
+      - postgres
+    networks:
+      - avalon_net
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+    container_name: frontend_${ENV_PREFIX}
+    environment:
+      ENV: ${ENV_PREFIX}
+      VITE_API_URL: ${BACKEND_URL}
+    ports:
+      - "${FRONTEND_PORT}:5173"
+    depends_on:
+      - backend
+    networks:
+      - avalon_net
+
+  # Nginx
+  nginx:
+    image: nginx:latest
+    container_name: nginx_${ENV_PREFIX}
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/certs:/etc/letsencrypt
+      - ./nginx/www:/var/www/certbot
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - avalon_net
+
+  # Redis
+  redis:
+    image: redis:7
+    container_name: redis_${ENV_PREFIX}
+    ports:
+      - "6379:6379"
+    networks:
+      - avalon_net
+
+  # MinIO
+  minio:
+    image: minio/minio:latest
+    container_name: minio_${ENV_PREFIX}
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - avalon_net
+
+networks:
+  avalon_net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  minio_data:
