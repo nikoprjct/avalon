@@ -28,7 +28,7 @@ export class SysClassFeature {
     isInherited!: boolean;
 
     @Column({ name: "inherited_from", type: "uuid", nullable: true })
-    inheritedFrom?: string | null;
+    inheritedFrom?: string;
 
     @Column({ name: "created_at" })
     createdAt!: Date;
