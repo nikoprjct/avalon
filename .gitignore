@@ -11,3 +11,4 @@
 **/zookeeper_data*
 **/opensearch_data*
 *.log
+.env
